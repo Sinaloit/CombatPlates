@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Addon Author="Garet Jax" APIVersion="6" Name="CombatPlates" Description="A replacement for nameplates." Version="10">
+<Addon Author="Garet Jax/Sinaloit/Caedo" APIVersion="8" Name="CombatPlates" Description="A replacement for nameplates." Version="10">
     <Script Name="CombatPlates.lua"/>
     <Form Name="CombatPlates.xml"/>
     <ReplaceAddon Name="Nameplates"/>

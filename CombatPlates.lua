@@ -25,6 +25,7 @@ CombatPlates.CodeEnumMode = {
 }
 
 local nAddonVersion = 10
+local knNameplatePoolLimit	= 500 -- the window pool max size
 
 local tDefaultSettings = {
 	bDebug = false,
@@ -72,7 +73,11 @@ function CombatPlates:new(o)
     o = o or {}
     setmetatable(o, self)
     self.__index = self 
-		
+	
+    o.tUnitsBacklog = {}
+    o.tResourcePool = {}
+    o.tWindowLookup = {}
+
     return o
 end
 
@@ -87,7 +92,6 @@ function CombatPlates:OnLoad()
 	self:ConvertColorsToObjects()
 	
 	self.tNameplates = {}
-	self.tUnitsBacklog = {}
 	self.uPlayerUnit = nil
 	self.uPlayerWindow = nil
 	self.nTargetId = nil
@@ -102,26 +106,33 @@ function CombatPlates:OnLoad()
 
 	-- this is a timer ~= 0.1 sec (at least on my computer)
 	Apollo.RegisterEventHandler("VarChange_FrameCount", "UpdateAllNameplates", self)
+
+
+	local tRewardUpdateEvents = {
+		"QuestObjectiveUpdated", "QuestStateChanged", "ChallengeAbandon", "ChallengeLeftArea",
+		"ChallengeFailTime", "ChallengeFailArea", "ChallengeActivate", "ChallengeCompleted",
+		"ChallengeFailGeneric", "PublicEventObjectiveUpdate", "PublicEventUnitUpdate",
+		"PlayerPathMissionUpdate", "FriendshipAdd", "FriendshipRemoved", "FriendshipUpdate" 
+	}
+
+	for nIndex, strEventName in pairs(tRewardUpdateEvents) do
+		Apollo.RegisterEventHandler(strEventName, "UpdateAllNameplates", self)
+	end
 	
 	-- icon update events
-	Apollo.RegisterEventHandler("QuestInit", "OnQuestInit", self)
-	Apollo.RegisterEventHandler("QuestStateChanged", "OnQuestStateChanged", self)
 	Apollo.RegisterEventHandler("UnitActivationTypeChanged", "OnUnitActivationTypeChanged", self)
-	Apollo.RegisterEventHandler("QuestObjectiveUpdated", "OnQuestObjectiveUpdated", self)
-	Apollo.RegisterEventHandler("PublicEventStart", "OnPublicEventStart", self)
-	Apollo.RegisterEventHandler("PublicEventObjectiveUpdate", "OnPublicEventObjectiveUpdate", self)
-	Apollo.RegisterEventHandler("PublicEventEnd", "OnPublicEventEnd", self)
-	Apollo.RegisterEventHandler("ChallengeUnlocked", "OnChallengeUnlocked", self)
-	Apollo.RegisterEventHandler("ChallengeFailArea", "OnChallengeFailArea", self)
-    Apollo.RegisterEventHandler("ChallengeFailTime", "OnChallengeFailTime", self)
-	Apollo.RegisterEventHandler("ChallengeActivate", "OnChallengeActivate", self)
-	Apollo.RegisterEventHandler("ChallengeCompleted", "OnChallengeCompleted", self)
-	Apollo.RegisterEventHandler("ChallengeAbandon", "OnChallengeCompleted", self)
-	Apollo.RegisterEventHandler("PlayerPathMissionUnlocked", "OnPlayerPathMissionChange", self)
-	Apollo.RegisterEventHandler("PlayerPathMissionUpdate", "OnPlayerPathMissionChange", self)
-	Apollo.RegisterEventHandler("PlayerPathMissionComplete", "OnPlayerPathMissionChange", self)
-	Apollo.RegisterEventHandler("PlayerPathMissionDeactivate", "OnPlayerPathMissionChange", self)
-	Apollo.RegisterEventHandler("PlayerPathMissionActivate", "OnPlayerPathMissionChange", self)
+
+--[[ In Theory covered by above RewardUpdateEvents, need to verify
+	Apollo.RegisterEventHandler("QuestInit", "UpdateAllNameplates", self)
+	Apollo.RegisterEventHandler("PublicEventStart", "UpdateAllNameplates", self)
+	Apollo.RegisterEventHandler("PublicEventEnd", "UpdateAllNameplates", self)
+	Apollo.RegisterEventHandler("ChallengeUnlocked", "UpdateAllNameplates", self)
+	Apollo.RegisterEventHandler("PlayerPathMissionUnlocked", "UpdateAllNameplates", self)
+	Apollo.RegisterEventHandler("PlayerPathMissionUpdate", "UpdateAllNameplates", self)
+	Apollo.RegisterEventHandler("PlayerPathMissionComplete", "UpdateAllNameplates", self)
+	Apollo.RegisterEventHandler("PlayerPathMissionDeactivate", "UpdateAllNameplates", self)
+	Apollo.RegisterEventHandler("PlayerPathMissionActivate", "UpdateAllNameplates", self)
+--]]
 end
 
 --- main nameplate manipulation ---
@@ -134,21 +145,53 @@ function CombatPlates:AddNameplate(uUnit)
 		return
 	end
 	
-	local uNameplate = Apollo.LoadForm(self.uXml, "Nameplate", "InWorldHudStratum", self)
-	uNameplate:SetUnit(uUnit, 1)
-	uNameplate:FindChild("BuffsMinus"):SetUnit(uUnit)
+	local uNameplate = nil
+	local wndReferences = nil
+	if next(self.tResourcePool) ~= nil then
+		local poolEntry = table.remove(self.tResourcePool)
+		uNameplate = poolEntry[1]
+		wndReferences = poolEntry[2]
+	end
 	
-	local uLifeBars = uNameplate:FindChild("LifeBars")
+	if uNameplate == nil or not uNameplate:IsValid() then
+		uNameplate = Apollo.LoadForm(self.uXml, "Nameplate", "InWorldHudStratum", self)
+		wndReferences  = nil
+	end
+	
+	uNameplate:Show(false, true)
+	uNameplate:SetUnit(uUnit, 1)
+
+	wndReferences = wndReferences or {
+		BuffsLine	= uNameplate:FindChild("BuffsLine"),
+		BuffsMinus	= uNameplate:FindChild("BuffsMinus"),
+		LifeLine	= uNameplate:FindChild("LifeLine"),
+		LifeBars 	= uNameplate:FindChild("LifeBars"),
+		Sprint 		= uNameplate:FindChild("Sprint"),
+		Health 		= uNameplate:FindChild("Health"),
+		LifeText 	= uNameplate:FindChild("LifeText"),
+		Shield 		= uNameplate:FindChild("Shield"),
+		Absorption 	= uNameplate:FindChild("Absorption"),
+		Name 		= uNameplate:FindChild("Name"),
+		State 		= uNameplate:FindChild("State"),
+		StateBack	= uNameplate:FindChild("StateBack"),
+		Guild 		= uNameplate:FindChild("Guild"),
+		IconsLine 	= uNameplate:FindChild("IconsLine"),
+		FlickerProtector = uNameplate:FindChild("FlickerProtector"),
+	}
+
+	wndReferences.BuffsMinus:SetUnit(uUnit)
+	
+	local uLifeBars = wndReferences.LifeBars
 	self:MovePixieLineToFractionHorizontal(uLifeBars, 1, self.tSettings.nHealthCriticalFraction)
 	self:MovePixieLineToFractionHorizontal(uLifeBars, 2, self.tSettings.nHealthLowFraction)
 	
 	local bIsMe = (nUnitId == self.uPlayerUnit:GetId())
 	if bIsMe then
-		uNameplate:FindChild("Sprint"):Show(true)
-		local nLeft, nTop, nRight, nBottom = uNameplate:FindChild("BuffsLine"):GetAnchorOffsets()
-		uNameplate:FindChild("BuffsLine"):SetAnchorOffsets(nLeft, nTop + 1, nRight, nBottom + 1)
+		wndReferences.Sprint:Show(true)
+		local nLeft, nTop, nRight, nBottom = wndReferences.BuffsLine:GetAnchorOffsets()
+		wndReferences.BuffsLine:SetAnchorOffsets(nLeft, nTop + 1, nRight, nBottom + 1)
 	else
-		uNameplate:FindChild("Sprint"):Destroy()
+		wndReferences.Sprint:Show(false) -- Can we destroy? Possible could be recycled for us later.
 	end
 		
 	self.tNameplates[nUnitId] = {
@@ -169,9 +212,11 @@ function CombatPlates:AddNameplate(uUnit)
 		unitTypeString = "",
 		bIsOver = true,
 		measurement = nil,
-		plateMode = self.CodeEnumMode.Standard
+		plateMode = self.CodeEnumMode.Standard,
+		refs = wndReferences,
 	}
-	
+	self.tWindowLookup[uNameplate:GetId()] = self.tNameplates[nUnitId]
+
 	self:UpdateWholeNameplate(nUnitId)
 end
 
@@ -206,8 +251,19 @@ function CombatPlates:RemoveNameplate(nUnitId)
 		self:debug(nUnitId .. " - nameplate already removed")
 		return
 	end
+
+	local tNameplate = self.tNameplates[nUnitId]
+	local wndNameplate = tNameplate.window
 	
-	self.tNameplates[nUnitId].window:Destroy()
+	self.tWindowLookup[wndNameplate:GetId()] = nil
+	if #self.tResourcePool < knNameplatePoolLimit then
+		wndNameplate:Show(false, true)
+		wndNameplate:SetUnit(nil)
+		table.insert(self.tResourcePool, {wndNameplate, tNameplate.refs})
+	else
+		wndNameplate:Destroy()
+	end
+
 	self.tNameplates[nUnitId] = nil
 end
 
@@ -243,7 +299,7 @@ function CombatPlates:UpdateNameplateEssentials(nUnitId)
 		end
 	end
 
-		self:UpdateLife(nUnitId)
+	self:UpdateLife(nUnitId)
 	self:UpdateUnitState(nUnitId)
 	self:UpdateCCArmor(nUnitId)
 	self:UpdateDisposition(nUnitId)
@@ -283,7 +339,7 @@ function CombatPlates:UpdateLife(nUnitId)
 		tData.unit:GetShieldCapacity(), -- 3
 		tData.unit:GetShieldCapacityMax(), -- 4
 		tData.unit:GetAbsorptionValue(), -- 5
-		tData.unit:GetAbsorptionMax() -- 6
+--		tData.unit:GetAbsorptionMax() -- 6, Does anyone care about how much you used to have?
 	}
 	local sLifeHash = "n/a"
 	if tLife[2] ~= nil and tLife[2] > 0 then
@@ -295,23 +351,22 @@ function CombatPlates:UpdateLife(nUnitId)
 	end
 	
 	if sLifeHash == "n/a" then
-		tData.window:FindChild("Health"):Show(false)
-		tData.window:FindChild("LifeText"):SetText("")
+		tData.refs.Health:Show(false)
+		tData.refs.LifeText:SetText("")
 		tData.isWounded = false
 	else
-		local nMaxLife = tLife[2] + tLife[4] + tLife[6]
+		local nMaxLife = tLife[2] + tLife[4] + tLife[5]
 		local nCurrentLife = tLife[1] + tLife[3] + tLife[5]
 		tData.isWounded = (nMaxLife ~= nCurrentLife)
 		
 		if tData.lifeHash == "n/a" then
-			tData.window:FindChild("Health"):Show(true)
+			tData.refs.Health:Show(true)
 		end
+		local nAvailableLife, nAvailableWidth = self:SetLifeBarWidth(tData.refs.Absorption, tLife[2] + tLife[5], tData.lifeWidth, tLife[5], tLife[5])
+		self:SetShieldWidth(tData.refs.Shield, tLife[2], nAvailableWidth, tLife[4], tLife[3], 0)
+		self:SetLifeBarWidth(tData.refs.Health, nAvailableLife, nAvailableWidth, tLife[2], tLife[1])
 		
-		local nAvailableLife, nAvailableWidth = self:SetLifeBarWidth(tData.window:FindChild("Absorption"), tLife[2] + tLife[6], tData.lifeWidth, tLife[6], tLife[5])
-		self:SetShieldWidth(tData.window:FindChild("Shield"), tLife[2], nAvailableWidth, tLife[4], tLife[3], 0)
-		self:SetLifeBarWidth(tData.window:FindChild("Health"), nAvailableLife, nAvailableWidth, tLife[2], tLife[1])
-		
-		tData.window:FindChild("LifeText"):SetText(self:RenderShortNumber(tLife[1] + tLife[5]))
+		tData.refs.LifeText:SetText(self:RenderShortNumber(tLife[1] + tLife[5]))
 	end
 	
 	self.tNameplates[nUnitId].lifeHash = sLifeHash
@@ -330,7 +385,7 @@ function CombatPlates:SetShieldWidth(uWindow, nTotalNumber, nTotalPixels, nValue
 		nCurrentPixels = nTotalPixels
 	end
 	
-	uWindow:SetAnchorOffsets(-(nCurrentPixels + nPixelsAdjustment), 0, -nPixelsAdjustment, 2)
+	uWindow:SetAnchorOffsets(-(nCurrentPixels + nPixelsAdjustment), 0, -nPixelsAdjustment, 5)
 end
 
 function CombatPlates:SetLifeBarWidth(uWindow, nTotalNumber, nTotalPixels, nValueNumber, nCurrentNumber)
@@ -373,7 +428,7 @@ function CombatPlates:UpdateDisposition(nUnitId)
 		uColor = self.tSettings.tColors.tDisposition[nDisposition]
 	end
 	
-	tData.window:FindChild("Health"):SetBGColor(uColor)
+	tData.refs.Health:SetBGColor(uColor)
 	tData.disposition = sDispHash
 end
 
@@ -383,7 +438,7 @@ function CombatPlates:UpdateUnitState(nUnitId)
 	local tData = self.tNameplates[nUnitId]
 	local nVulnerabilityTime = tData.unit:GetCCStateTimeRemaining(Unit.CodeEnumCCState.Vulnerability)
 	local nUnitState = self.CodeEnumUnitState.Ok
-	local uStateWindow = tData.window:FindChild("State")
+	local uStateWindow = tData.refs.State
 	
 	local nUnitMaxHealth = tData.unit:GetMaxHealth()
 	local nLifeFraction = 1
@@ -453,16 +508,16 @@ function CombatPlates:UpdateCCArmor(nUnitId)
 	end
 	
 	if nCcArmorMax == -1 then
-		tData.window:FindChild("State"):SetText("inf")
+		tData.refs.State:SetText("inf")
 	elseif bIsCasting and nCcArmorCurrent == 0 then
-		tData.window:FindChild("State"):SetText("!!")
+		tData.refs.State:SetText("!!")
 	elseif nCcArmorMax ~= 0 then
-		tData.window:FindChild("State"):SetText(nCcArmorCurrent)
+		tData.refs.State:SetText(nCcArmorCurrent)
 	else
-		tData.window:FindChild("State"):SetText("")
+		tData.refs.State:SetText("")
 	end
 	
-	tData.window:FindChild("StateBack"):SetBGColor(self.tSettings.tColors.tUnitCastingInfo[bIsCasting])
+	tData.refs.StateBack:SetBGColor(self.tSettings.tColors.tUnitCastingInfo[bIsCasting])
 	tData.ccArmor = sCcArmorHash
 end
 
@@ -485,15 +540,15 @@ function CombatPlates:UpdateName(nUnitId)
 		if sType ~= "" then
 			sType = " " .. sType
 		end
-		tData.window:FindChild("Name"):SetText(string.format("%s%s: %s", sLevel, sType, sName))
+		tData.refs.Name:SetText(string.format("%s%s: %s", sLevel, sType, sName))
 	else
 		if sType ~= "" then
 			sType = sType .. ": "
 		end
-		tData.window:FindChild("Name"):SetText(string.format("%s%s", sType, sName))
+		tData.refs.Name:SetText(string.format("%s%s", sType, sName))
 	end
 	
-	local uGuildWindow = tData.window:FindChild("Guild")
+	local uGuildWindow = tData.refs.Guild
 	local sGuild = tData.unit:GetGuildName()
 	local sAffiliation = tData.unit:GetAffiliationName()
 	
@@ -611,7 +666,7 @@ function CombatPlates:UpdateIcons(nUnitId)
 		return
 	end
 	
-	local uIconsWindow = tData.window:FindChild("IconsLine")
+	local uIconsWindow = tData.refs.IconsLine
 	uIconsWindow:DestroyChildren()
 	tData.icons = sIconsHash
 	
@@ -664,7 +719,7 @@ function CombatPlates:UpdateSprint(nUnitId)
 		return
 	end
 	
-	local uSprintWindow = tData.window:FindChild("Sprint")
+	local uSprintWindow = tData.refs.Sprint
 	uSprintWindow:SetMax(nSprintMax)
 	uSprintWindow:SetProgress(nSprintCurrent)
 	
@@ -715,9 +770,9 @@ function CombatPlates:UpdatePlateMode(nUnitId)
 	
 	if nPlateMode ~= self.CodeEnumMode.Hidden then
 		local bShowLines = (nPlateMode == self.CodeEnumMode.Standard)
-		tData.window:FindChild("LifeLine"):Show(bShowLines)
-		tData.window:FindChild("BuffsLine"):Show(bShowLines)
-		tData.window:FindChild("IconsLine"):Show(bShowLines)
+		tData.refs.LifeLine:Show(bShowLines)
+		tData.refs.BuffsLine:Show(bShowLines)
+		tData.refs.IconsLine:Show(bShowLines)
 	end
 	
 	tData.plateMode = nPlateMode
@@ -726,7 +781,7 @@ end
 function CombatPlates:SetVisible(tData, bIsVisible)
 	tData.isVisible = bIsVisible
 	tData.window:Show(bIsVisible)
-	tData.window:FindChild("FlickerProtector"):Show(bIsVisible)
+	tData.refs.FlickerProtector:Show(bIsVisible)
 end
 
 --- generic helpers ---
@@ -778,46 +833,51 @@ function CombatPlates:OnChangeWorld()
 end
 
 function CombatPlates:OnUnitCreated(uUnit)
+	if not uUnit:ShouldShowNamePlate()
+		or uUnit:GetType() == "Mount"
+		or uUnit:GetType() == "Plug"
+		or uUnit:GetType() == "Simple"
+		or uUnit:GetType() == "Collectible" 
+		or uUnit:GetType() == "PinataLoot" then
+		-- this type of unit will never have a nameplate
+		return
+	end
+
 	local nUnitId = uUnit:GetId()
-	
+
 	if self.uPlayerUnit == nil then
 		self.tUnitsBacklog[nUnitId] = uUnit
 		--Print("Backlogged " .. nUnitId .. " (" .. uUnit:GetName() .. ")")
 		return
 	end
-	
+
 	-- why some units have this???
 	--if --[[not uUnit:ShouldShowNamePlate() or--]] uUnit:GetType() == "Mount" or uUnit:GetType() == "Plug" or uUnit:GetType() == "Simple" then
 		-- this unit will never have a nameplate
 	--	return
 	--end
-	
-	if not uUnit:ShouldShowNamePlate() or uUnit:GetType() == "Mount" or uUnit:GetType() == "Plug" or uUnit:GetType() == "Simple" then
-		-- this unit will never have a nameplate
-		return
-	end
-	
+
 	if self.tNameplates[nUnitId] ~= nil then
 		-- unit already exists
 		--Print("Added " .. nUnitId .. " (" .. uUnit:GetName() .. ")")
 		return
 	end
-	
+
 	self:AddNameplate(uUnit)
 end
 
 function CombatPlates:OnUnitDestroyed(uUnit)
 	local nUnitId = uUnit:GetId()
-	
+
 	if self.uPlayerUnit == nil then
 		self.tUnitsBacklog[nUnitId] = nil
 		return
 	end
-	
+
 	if self.tNameplates[nUnitId] == nil then
 		return
 	end
-	
+
 	self:RemoveNameplate(nUnitId)
 end
 
@@ -863,15 +923,6 @@ end
 
 --- update events - icon updates ---
 
-function CombatPlates:OnQuestInit()
-	self:UpdateAllNameplateIcons()
-end
-function CombatPlates:OnQuestStateChanged()
-	self:UpdateAllNameplateIcons()
-end
-function CombatPlates:OnQuestObjectiveUpdated()
-	self:UpdateAllNameplateIcons()
-end
 
 function CombatPlates:OnUnitActivationTypeChanged(uUnit)
 	local nUnitId = uUnit:GetId()
@@ -882,35 +933,6 @@ function CombatPlates:OnUnitActivationTypeChanged(uUnit)
 	self:UpdateWholeNameplate(nUnitId)
 end
 
-function CombatPlates:OnPublicEventStart()
-	self:UpdateAllNameplateIcons()
-end
-function CombatPlates:OnPublicEventObjectiveUpdate()
-	self:UpdateAllNameplateIcons()
-end
-function CombatPlates:OnPublicEventEnd()
-	self:UpdateAllNameplateIcons()
-end
-
-function CombatPlates:OnChallengeUnlocked()
-	self:UpdateAllNameplateIcons()
-end
-function CombatPlates:OnChallengeFailArea()
-	self:UpdateAllNameplateIcons()
-end
-function CombatPlates:OnChallengeFailTime()
-	self:UpdateAllNameplateIcons()
-end
-function CombatPlates:OnChallengeActivate()
-	self:UpdateAllNameplateIcons()
-end
-function CombatPlates:OnChallengeCompleted()
-	self:UpdateAllNameplateIcons()
-end
-
-function CombatPlates:OnPlayerPathMissionChange()
-	self:UpdateAllNameplateIcons()
-end
 
 --- one time updates ---
 function CombatPlates:ConvertColorsToObjects()
@@ -918,6 +940,19 @@ function CombatPlates:ConvertColorsToObjects()
 		for j, tColor in pairs(tList) do
 			tList[j] = ApolloColor.new(tColor)
 		end
+	end
+end
+
+--- Event Handlers ---
+function CombatPlates:OnTarget( wndHandler, wndControl, eMouseButton)
+	local idUnit = wndHandler:GetId()
+	if self.tWindowLookup[idUnit] == nil then
+		return
+	end
+	
+	local unitOwner = self.tWindowLookup[idUnit].unitOwner
+	if GameLib.GetTargetUnit() ~= unitOwner and eMouseButton == GameLib.CodeEnumInputMouse.Left then
+		GameLib.SetTargetUnit(unitOwner)
 	end
 end
 
