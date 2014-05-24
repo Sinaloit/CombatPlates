@@ -217,6 +217,8 @@ function CombatPlates:AddNameplate(uUnit)
 		plateMode = self.CodeEnumMode.Standard,
 		refs = wndReferences,
 	}
+	self:SetVisible(self.tNameplates[nUnitId], false)
+
 	self.tWindowLookup[uNameplate:GetId()] = self.tNameplates[nUnitId]
 
 	self:UpdateWholeNameplate(nUnitId)
