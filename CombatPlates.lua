@@ -949,14 +949,17 @@ end
 
 --- Event Handlers ---
 function CombatPlates:OnTarget( wndHandler, wndControl, eMouseButton)
-	local idUnit = wndHandler:GetId()
-	if self.tWindowLookup[idUnit] == nil then
-		return
-	end
-	
-	local unitOwner = self.tWindowLookup[idUnit].unitOwner
-	if GameLib.GetTargetUnit() ~= unitOwner and eMouseButton == GameLib.CodeEnumInputMouse.Left then
-		GameLib.SetTargetUnit(unitOwner)
+	if wndHandler == wndControl then
+		local idUnit = wndHandler:GetId()
+		if self.tWindowLookup[idUnit] == nil or eMouseButton ~= GameLib.CodeEnumInputMouse.Left then
+			return
+		end
+		
+		local unitOwner = self.tWindowLookup[idUnit].unit
+		if GameLib.GetTargetUnit() ~= unitOwner then
+			GameLib.SetTargetUnit(unitOwner)
+		end
+		return true
 	end
 end
 
