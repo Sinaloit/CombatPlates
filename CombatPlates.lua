@@ -179,6 +179,8 @@ function CombatPlates:AddNameplate(uUnit)
 		FlickerProtector = uNameplate:FindChild("FlickerProtector"),
 	}
 
+	wndReferences.Health:Show(true, true)
+
 	wndReferences.BuffsMinus:SetUnit(uUnit)
 	
 	local uLifeBars = wndReferences.LifeBars
