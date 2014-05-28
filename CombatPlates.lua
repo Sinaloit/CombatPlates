@@ -97,6 +97,7 @@ function CombatPlates:OnLoad()
 	self.nTargetId = nil
 	
 	self.uXml = XmlDoc.CreateFromFile("CombatPlates.xml")
+	Apollo.LoadSprites("CombatSprites.xml")
 	
 	-- basic events
 	Apollo.RegisterEventHandler("UnitCreated", "OnUnitCreated", self)
@@ -173,10 +174,10 @@ function CombatPlates:AddNameplate(uUnit)
 		Absorption 	= uNameplate:FindChild("Absorption"),
 		Name 		= uNameplate:FindChild("Name"),
 		State 		= uNameplate:FindChild("State"),
-		StateBack	= uNameplate:FindChild("StateBack"),
 		Guild 		= uNameplate:FindChild("Guild"),
 		IconsLine 	= uNameplate:FindChild("IconsLine"),
 		FlickerProtector = uNameplate:FindChild("FlickerProtector"),
+		CastBar     = uNameplate:FindChild("CastBar")
 	}
 
 	wndReferences.Health:Show(true, true)
@@ -489,11 +490,13 @@ function CombatPlates:UpdateCCArmor(nUnitId)
 	
 	local nCcArmorMax = nil
 	local nCcArmorCurrent = nil
+	local nDashPercent = nil
 	
 	if tData.isMe then
 		-- dash instead of interrupt armor
 		nCcArmorMax = math.floor(tData.unit:GetMaxResource(7) / 100)
 		nCcArmorCurrent = math.floor(tData.unit:GetResource(7) / 10) / 10
+		nDashPercent = tData.unit:GetResource(7) % 100
 	else
 		nCcArmorMax = tData.unit:GetInterruptArmorMax()
 		nCcArmorCurrent = tData.unit:GetInterruptArmorValue()
@@ -507,6 +510,11 @@ function CombatPlates:UpdateCCArmor(nUnitId)
 		sCcArmorHash = nCcArmorCurrent .. "/" .. nCcArmorMax
 	end
 	
+	if bIsCasting then
+		local nCastPercent = tData.unit:GetCastElapsed() / tData.unit:GetCastDuration()
+		tData.refs.CastBar:SetProgress(nCastPercent)
+	end
+
 	if tData.ccArmor == sCcArmorHash then
 		return
 	end
@@ -516,12 +524,16 @@ function CombatPlates:UpdateCCArmor(nUnitId)
 	elseif bIsCasting and nCcArmorCurrent == 0 then
 		tData.refs.State:SetText("!!")
 	elseif nCcArmorMax ~= 0 then
-		tData.refs.State:SetText(nCcArmorCurrent)
+		tData.refs.State:SetText(math.floor(nCcArmorCurrent))
+		if tData.isMe and nDashPercent ~= 0 then
+			bIsCasting = true
+			tData.refs.CastBar:SetProgress(nDashPercent/100.0)
+		end
 	else
 		tData.refs.State:SetText("")
 	end
 	
-	tData.refs.StateBack:SetBGColor(self.tSettings.tColors.tUnitCastingInfo[bIsCasting])
+	tData.refs.CastBar:SetBGColor(self.tSettings.tColors.tUnitCastingInfo[bIsCasting])
 	tData.ccArmor = sCcArmorHash
 end
 
