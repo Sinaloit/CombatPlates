@@ -990,4 +990,3 @@ end
 
 local CombatPlatesInst = CombatPlates:new()
 CombatPlatesInst:Init()
-
