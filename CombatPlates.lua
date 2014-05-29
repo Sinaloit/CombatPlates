@@ -513,6 +513,9 @@ function CombatPlates:UpdateCCArmor(nUnitId)
 	if bIsCasting then
 		local nCastPercent = tData.unit:GetCastElapsed() / tData.unit:GetCastDuration()
 		tData.refs.CastBar:SetProgress(nCastPercent)
+	elseif tData.isMe and nDashPercent ~= 0 then
+		bIsCasting = true
+		tData.refs.CastBar:SetProgress(nDashPercent/100.0)
 	end
 
 	if tData.ccArmor == sCcArmorHash then
@@ -525,10 +528,6 @@ function CombatPlates:UpdateCCArmor(nUnitId)
 		tData.refs.State:SetText("!!")
 	elseif nCcArmorMax ~= 0 then
 		tData.refs.State:SetText(math.floor(nCcArmorCurrent))
-		if tData.isMe and nDashPercent ~= 0 then
-			bIsCasting = true
-			tData.refs.CastBar:SetProgress(nDashPercent/100.0)
-		end
 	else
 		tData.refs.State:SetText("")
 	end
