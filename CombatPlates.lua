@@ -264,6 +264,7 @@ function CombatPlates:RemoveNameplate(nUnitId)
 	if #self.tResourcePool < knNameplatePoolLimit then
 		wndNameplate:Show(false, true)
 		wndNameplate:SetUnit(nil)
+		tNameplate.refs.IconsLine:DestroyChildren()
 		table.insert(self.tResourcePool, {wndNameplate, tNameplate.refs})
 	else
 		wndNameplate:Destroy()
