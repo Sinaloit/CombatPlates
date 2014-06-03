@@ -177,7 +177,8 @@ function CombatPlates:AddNameplate(uUnit)
 		Guild 		= uNameplate:FindChild("Guild"),
 		IconsLine 	= uNameplate:FindChild("IconsLine"),
 		FlickerProtector = uNameplate:FindChild("FlickerProtector"),
-		CastBar     = uNameplate:FindChild("CastBar")
+		CastBar     = uNameplate:FindChild("CastBar"),
+		NumDisplay  = uNameplate:FindChild("NumDisplay"),
 	}
 
 	wndReferences.Health:Show(true, true)
@@ -391,7 +392,7 @@ function CombatPlates:SetShieldWidth(uWindow, nTotalNumber, nTotalPixels, nValue
 		nCurrentPixels = nTotalPixels
 	end
 	
-	uWindow:SetAnchorOffsets(-(nCurrentPixels + nPixelsAdjustment), 0, -nPixelsAdjustment, 5)
+	uWindow:SetAnchorOffsets(-(nCurrentPixels + nPixelsAdjustment), 0, -nPixelsAdjustment, 8)
 end
 
 function CombatPlates:SetLifeBarWidth(uWindow, nTotalNumber, nTotalPixels, nValueNumber, nCurrentNumber)
@@ -445,6 +446,7 @@ function CombatPlates:UpdateUnitState(nUnitId)
 	local nVulnerabilityTime = tData.unit:GetCCStateTimeRemaining(Unit.CodeEnumCCState.Vulnerability)
 	local nUnitState = self.CodeEnumUnitState.Ok
 	local uStateWindow = tData.refs.State
+	local uStateText = tData.refs.NumDisplay
 	
 	local nUnitMaxHealth = tData.unit:GetMaxHealth()
 	local nLifeFraction = 1
@@ -454,11 +456,11 @@ function CombatPlates:UpdateUnitState(nUnitId)
 	
 	if nVulnerabilityTime ~= nil and nVulnerabilityTime > 0 then
 		nUnitState = self.CodeEnumUnitState.Vulnerable
-		uStateWindow:SetText(string.format("%.1f", nVulnerabilityTime))
+		uStateText:SetText(string.format("%.1f", nVulnerabilityTime))
 	elseif tData.unit:IsDead() then
 		nUnitState = self.CodeEnumUnitState.Dead
 		if tData.unitState ~= nUnitState then
-			uStateWindow:SetText("xD")
+			uStateText:SetText("xD")
 		end
 	elseif nLifeFraction <= self.tSettings.nHealthCriticalFraction then
 		nUnitState = self.CodeEnumUnitState.Critical
@@ -472,7 +474,7 @@ function CombatPlates:UpdateUnitState(nUnitId)
 	
 	if tData.unitState == self.CodeEnumUnitState.Dead then
 		-- raised from the dead
-		uStateWindow:SetText("")
+		uStateText:SetText("")
 	end
 	
 	uStateWindow:SetBGColor(self.tSettings.tColors.tUnitState[nUnitState])
@@ -502,7 +504,7 @@ function CombatPlates:UpdateCCArmor(nUnitId)
 		nCcArmorMax = tData.unit:GetInterruptArmorMax()
 		nCcArmorCurrent = tData.unit:GetInterruptArmorValue()
 	end
-	local bIsCasting = tData.unit:IsCasting()
+	local bIsCasting = tData.unit:IsCasting() and not tData.isMe
 	local sCcArmorHash = ""
 	
 	if bIsCasting and nCcArmorCurrent == 0 then
@@ -514,9 +516,6 @@ function CombatPlates:UpdateCCArmor(nUnitId)
 	if bIsCasting then
 		local nCastPercent = tData.unit:GetCastElapsed() / tData.unit:GetCastDuration()
 		tData.refs.CastBar:SetProgress(nCastPercent)
-	elseif tData.isMe and nDashPercent ~= 0 then
-		bIsCasting = true
-		tData.refs.CastBar:SetProgress(nDashPercent/100.0)
 	end
 
 	if tData.ccArmor == sCcArmorHash then
@@ -524,13 +523,17 @@ function CombatPlates:UpdateCCArmor(nUnitId)
 	end
 	
 	if nCcArmorMax == -1 then
-		tData.refs.State:SetText("inf")
+		tData.refs.NumDisplay:SetText("inf")
 	elseif bIsCasting and nCcArmorCurrent == 0 then
-		tData.refs.State:SetText("!!")
+		tData.refs.NumDisplay:SetText("!!")
 	elseif nCcArmorMax ~= 0 then
-		tData.refs.State:SetText(math.floor(nCcArmorCurrent))
+		tData.refs.NumDisplay:SetText(math.floor(nCcArmorCurrent))
+        if tData.isMe then
+			bIsCasting = true
+			tData.refs.CastBar:SetProgress(nDashPercent/100.0)
+		end
 	else
-		tData.refs.State:SetText("")
+		tData.refs.NumDisplay:SetText("")
 	end
 	
 	tData.refs.CastBar:SetBGColor(self.tSettings.tColors.tUnitCastingInfo[bIsCasting])
