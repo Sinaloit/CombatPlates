@@ -182,6 +182,7 @@ function CombatPlates:AddNameplate(uUnit)
 	}
 
 	wndReferences.Health:Show(true, true)
+	wndReferences.LifeLine:Show(true, true)
 
 	wndReferences.BuffsMinus:SetUnit(uUnit)
 	
