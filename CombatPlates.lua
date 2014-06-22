@@ -967,7 +967,9 @@ end
 function CombatPlates:OnTarget( wndHandler, wndControl, eMouseButton)
 	if wndHandler == wndControl then
 		local idUnit = wndHandler:GetId()
-		if self.tWindowLookup[idUnit] == nil or eMouseButton ~= GameLib.CodeEnumInputMouse.Left then
+		if self.tWindowLookup[idUnit] == nil or 
+			eMouseButton ~= GameLib.CodeEnumInputMouse.Left or
+			self.tWindowLookup[idUnit].isMe then
 			return
 		end
 		
